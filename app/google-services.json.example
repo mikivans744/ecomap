@@ -1,0 +1,4 @@
+{
+  "instruccion": "Descargue google-services.json desde Firebase Console y reemplace app/google-services.json. No use este placeholder en producción.",
+  "package_name_esperado": "com.ecomap.app"
+}
