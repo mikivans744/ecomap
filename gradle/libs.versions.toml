@@ -18,6 +18,8 @@ tfliteSupport = "0.4.4"
 credentials = "1.3.0"
 googleId = "1.1.1"
 coroutines = "1.9.0"
+playServicesLocation = "21.3.0"
+generativeAi = "0.9.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
@@ -50,7 +52,16 @@ tflite-support = { module = "org.tensorflow:tensorflow-lite-support", version.re
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
 androidx-credentials-play-services = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
 googleid = { module = "com.google.android.libraries.identity.googleid:googleid", version.ref = "googleId" }
+google-generativeai = { module = "com.google.ai.client.generativeai:generativeai", version.ref = "generativeAi" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-coroutines-play-services = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-play-services", version.ref = "coroutines" }
+playServicesLocationLib = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
+junit = { group = "junit", name = "junit", version = "4.13.2" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+coil-compose = { module = "io.coil-kt:coil-compose", version = "2.6.0" }
+retrofit = { module = "com.squareup.retrofit2:retrofit", version = "2.9.0" }
+retrofit-gson = { module = "com.squareup.retrofit2:converter-gson", version = "2.9.0" }
+lottie-compose = { module = "com.airbnb.android:lottie-compose", version = "6.6.2" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

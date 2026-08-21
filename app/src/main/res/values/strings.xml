@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ECO-MAP</string>
+    <string name="welcome_title">ECO-MAP</string>
+    <string name="welcome_subtitle">Reciclar conecta comunidades</string>
+    <string name="start">Comenzar</string>
+    <string name="login_title">Iniciar sesión</string>
+    <string name="email">Correo electrónico</string>
+    <string name="password">Contraseña</string>
+    <string name="login_button">Ingresar</string>
+    <string name="register_button">Crear cuenta</string>
+    <string name="forgot_password">¿Olvidaste tu contraseña?</string>
+    <string name="register_title">Crear cuenta</string>
+    <string name="register_subtitle">Selecciona tu rol y completa tus datos para participar en ECO-MAP.</string>
+    <string name="register_citizen">Registrarme como ciudadano</string>
+    <string name="register_collector">Registrarme como recolector</string>
+    <string name="register_center">Registrarme como centro de acopio</string>
+    <string name="back">Volver</string>
+</resources>

@@ -1,18 +1,28 @@
 {
   "project_info": {
-    "project_number": "000000000000",
-    "project_id": "REEMPLAZAR_PROYECTO_FIREBASE",
-    "storage_bucket": "REEMPLAZAR_PROYECTO_FIREBASE.appspot.com"
+    "project_number": "845852521472",
+    "project_id": "ecomap-ae07e",
+    "storage_bucket": "ecomap-ae07e.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:00000000000000000000000000000000",
-        "android_client_info": { "package_name": "com.ecomap.app" }
+        "mobilesdk_app_id": "1:845852521472:android:5bf2db1f01608b8803d4e5",
+        "android_client_info": {
+          "package_name": "com.ecomap.app"
+        }
       },
       "oauth_client": [],
-      "api_key": [{ "current_key": "REEMPLAZAR_CON_API_KEY_FIREBASE"}],
-      "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+      "api_key": [
+        {
+          "current_key": "AIzaSyAIgOMAvH1xPFgs8eNbgrJzoqUtw-ppf8Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
     }
   ],
   "configuration_version": "1"

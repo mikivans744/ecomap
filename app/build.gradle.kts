@@ -27,6 +27,11 @@ android {
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders["MAPBOX_ACCESS_TOKEN"] = secret("MAPBOX_ACCESS_TOKEN")
+        buildConfigField("String", "MAPBOX_TOKEN", "\"${secret("MAPBOX_ACCESS_TOKEN")}\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
+        buildConfigField("boolean", "USE_MONGO", secret("USE_MONGO").ifBlank { "false" })
+        buildConfigField("String", "MONGO_API_KEY", "\"${secret("MONGO_API_KEY")}\"")
+        buildConfigField("String", "MONGO_URL", "\"${secret("MONGO_URL")}\"")
     }
 
     buildTypes {
@@ -45,6 +50,11 @@ android {
 }
 
 dependencies {
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.storage)
+    implementation(libs.firebase.messaging)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime)
     implementation(libs.androidx.lifecycle.viewmodel)
@@ -59,11 +69,7 @@ dependencies {
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation)
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.auth)
-    implementation(libs.firebase.firestore)
-    implementation(libs.firebase.storage)
-    implementation(libs.firebase.messaging)
+    implementation(libs.playServicesLocationLib)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     kapt(libs.androidx.room.compiler)
@@ -77,8 +83,16 @@ dependencies {
     implementation(libs.tflite.support)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services)
+    implementation(libs.google.generativeai)
     implementation(libs.googleid)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.coroutines.play.services)
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    implementation(libs.coil.compose)
+    implementation("com.airbnb.android:lottie-compose:6.6.2")
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.gson)
 }
 
 kapt { correctErrorTypes = true }
