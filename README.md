@@ -20,3 +20,7 @@ Aplicación Android en español para conectar ciudadanos, recolectores, centros 
 ```
 
 Los datos sensibles y el modelo TensorFlow Lite son placeholders hasta configurar los servicios correspondientes.
+
+```bash
+primera adicion de edith al repocitorio
+```
