@@ -10,7 +10,7 @@ Aplicación Android en español para conectar ciudadanos, recolectores, centros 
 ## Configuración
 
 1. Copia `secrets.properties.example` como `secrets.properties`.
-2. Añade los tokens de Mapbox y Gemini sin subirlos al repositorio.
+2. Añade la clave de Gemini sin subirla al repositorio.
 3. Reemplaza `app/google-services.json` con el archivo descargado desde Firebase Console.
 
 ## Compilación

@@ -3,8 +3,10 @@ package com.ecomap.app.presentation.ui.auth
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,20 +16,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.ecomap.app.domain.model.RoleCode
+import com.ecomap.app.presentation.ui.ai.AiViewModel
+import com.ecomap.app.util.ProfileCompletionCalculator
+import com.google.android.gms.location.LocationServices
 
 @Composable
 fun ProfileScreen(
     onBack: () -> Unit = {},
     onNavigateToSupport: () -> Unit = {},
+    onNavigateToCompleteProfile: () -> Unit = {},
     onLogout: () -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val user = viewModel.currentUserData
-    val state = viewModel.uiState
     val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshUser()
+    }
+
+    val completionPercent = ProfileCompletionCalculator.calculate(user)
 
     Column(
         Modifier
@@ -37,7 +49,7 @@ fun ProfileScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(user?.nombre ?: "Usuario", style = MaterialTheme.typography.headlineSmall)
                 Text(user?.email ?: "", style = MaterialTheme.typography.bodyMedium)
                 AssistChip(onClick = {}, label = { Text(user?.rolId ?: "") })
@@ -49,6 +61,13 @@ fun ProfileScreen(
             }
         }
 
+        SuggestionChip(
+            onClick = onNavigateToCompleteProfile,
+            label = { Text("Perfil $completionPercent% completado (Completar ahora)") },
+            icon = { Text(if (completionPercent == 100) "✅" else "⚠️") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
         if (user?.rolId == RoleCode.CENTRO_ACOPIO.name) {
             Text("Empresa: ${user.nombreEmpresa ?: "No registrada"}")
             Text("Dirección: ${user.direccionFija ?: "No registrada"}")
@@ -59,8 +78,8 @@ fun ProfileScreen(
             Text("Capacidad: ${user.capacidadKg ?: 0.0} kg")
         }
 
-        AnimatedButton(onClick = { /* GPS Logic */ }, modifier = Modifier.fillMaxWidth()) {
-            Text("Actualizar mi ubicación")
+        AnimatedButton(onClick = onNavigateToCompleteProfile, modifier = Modifier.fillMaxWidth()) {
+            Text("Completar mi perfil")
         }
 
         AnimatedButton(onClick = { viewModel.resetPassword(user?.email ?: "") }, modifier = Modifier.fillMaxWidth(), outlined = true) {
@@ -84,18 +103,294 @@ fun ProfileScreen(
 }
 
 @Composable
-fun SupportScreen(onBack: () -> Unit = {}) {
+fun CompleteProfileScreen(
+    onBack: () -> Unit = {},
+    viewModel: AuthViewModel = hiltViewModel(),
+    aiViewModel: AiViewModel = hiltViewModel()
+) {
+    val user = viewModel.currentUserData
+    val context = LocalContext.current
+    val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
+
+    val roleStr = user?.rolId ?: RoleCode.CIUDADANO.name
+    val completionPercent = ProfileCompletionCalculator.calculate(user)
+    val animatedProgress by animateFloatAsState(targetValue = completionPercent / 100f)
+
+    var phoneInput by remember(user?.telefono) { mutableStateOf(user?.telefono ?: "") }
+    var capacityInput by remember(user?.capacidadKg) { mutableStateOf(user?.capacidadKg?.toString() ?: "") }
+    var coverageInput by remember(user?.zonaCobertura) { mutableStateOf(user?.zonaCobertura ?: "") }
+    var materialsInput by remember { mutableStateOf("PLASTICO, VIDRIO, METAL") }
+    var gpsStatus by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text("Completar perfil", style = MaterialTheme.typography.headlineMedium)
+        
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Avance del perfil: $completionPercent%", style = MaterialTheme.typography.titleMedium)
+                LinearProgressIndicator(
+                    progress = { animatedProgress },
+                    modifier = Modifier.fillMaxWidth().height(12.dp)
+                )
+            }
+        }
+
+        if (aiViewModel.isLoading) {
+            LottieLoading()
+        }
+
+        aiViewModel.aiErrorMessage?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+
+        Text("Requisitos pendientes para tu rol (${roleStr}):", style = MaterialTheme.typography.titleSmall)
+
+        // Item 1: Teléfono de contacto
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("1. Teléfono de contacto", style = MaterialTheme.typography.titleMedium)
+                OutlinedTextField(
+                    value = phoneInput,
+                    onValueChange = { phoneInput = it },
+                    label = { Text("Número de teléfono") },
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+                )
+                Button(
+                    onClick = {
+                        viewModel.updateProfile(mapOf("telefono" to phoneInput.trim()))
+                        Toast.makeText(context, "Teléfono actualizado", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text("Guardar teléfono")
+                }
+            }
+        }
+
+        // Checklist por rol
+        when (roleStr.uppercase()) {
+            RoleCode.RECOLECTOR.name -> {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("2. Capacidad de carga (kg)", style = MaterialTheme.typography.titleMedium)
+                            SuggestionChip(
+                                onClick = {
+                                    aiViewModel.suggestProfileFieldWithAi("capacidad_kg", roleStr, user?.tipoVehiculo ?: "AUTOMOVIL") { sug ->
+                                        capacityInput = sug.filter { c -> c.isDigit() || c == '.' }
+                                        Toast.makeText(context, "IA sugiere: $sug. Presiona 'Guardar' para aplicar.", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                label = { Text("✨ Ayuda IA") }
+                            )
+                        }
+                        OutlinedTextField(
+                            value = capacityInput,
+                            onValueChange = { capacityInput = it },
+                            label = { Text("Capacidad en kg") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        Button(
+                            onClick = {
+                                val cap = capacityInput.toDoubleOrNull() ?: 0.0
+                                viewModel.updateProfile(mapOf("capacidad_kg" to cap))
+                                Toast.makeText(context, "Capacidad actualizada", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Guardar capacidad")
+                        }
+                    }
+                }
+
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("3. Zona de cobertura", style = MaterialTheme.typography.titleMedium)
+                            SuggestionChip(
+                                onClick = {
+                                    aiViewModel.suggestProfileFieldWithAi("zona_cobertura", roleStr, "") { sug ->
+                                        coverageInput = sug
+                                        Toast.makeText(context, "IA sugiere: $sug. Presiona 'Guardar' para aplicar.", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                label = { Text("✨ Ayuda IA") }
+                            )
+                        }
+                        OutlinedTextField(
+                            value = coverageInput,
+                            onValueChange = { coverageInput = it },
+                            label = { Text("Vecindario o zona de operación") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = {
+                                viewModel.updateProfile(mapOf("zona_cobertura" to coverageInput.trim()))
+                                Toast.makeText(context, "Zona actualizada", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Guardar zona")
+                        }
+                    }
+                }
+            }
+            RoleCode.CENTRO_ACOPIO.name, "CENTRO" -> {
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("2. Ubicación GPS fija", style = MaterialTheme.typography.titleMedium)
+                        gpsStatus?.let { Text(it, color = Color.Gray) }
+                        Button(
+                            onClick = {
+                                try {
+                                    fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                                        if (loc != null) {
+                                            viewModel.updateProfile(mapOf("lat" to loc.latitude, "lon" to loc.longitude))
+                                            gpsStatus = "GPS obtenido: ${loc.latitude}, ${loc.longitude}"
+                                            Toast.makeText(context, "Ubicación GPS guardada", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            gpsStatus = "No se pudo obtener la ubicación GPS"
+                                        }
+                                    }
+                                } catch (e: SecurityException) {
+                                    gpsStatus = "Permiso GPS no concedido"
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Obtener mi ubicación GPS actual")
+                        }
+                    }
+                }
+
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("3. Materiales aceptados", style = MaterialTheme.typography.titleMedium)
+                            SuggestionChip(
+                                onClick = {
+                                    aiViewModel.suggestProfileFieldWithAi("materiales_aceptados", roleStr, "") { sug ->
+                                        materialsInput = sug
+                                        Toast.makeText(context, "IA sugiere: $sug. Presiona 'Guardar' para aplicar.", Toast.LENGTH_LONG).show()
+                                    }
+                                },
+                                label = { Text("✨ Ayuda IA") }
+                            )
+                        }
+                        OutlinedTextField(
+                            value = materialsInput,
+                            onValueChange = { materialsInput = it },
+                            label = { Text("Categorías (separadas por coma)") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = {
+                                viewModel.updateProfile(mapOf("materiales_aceptados" to materialsInput.trim()))
+                                Toast.makeText(context, "Materiales actualizados", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Guardar materiales")
+                        }
+                    }
+                }
+            }
+            else -> { // CIUDADANO
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("2. Ubicación GPS habitual", style = MaterialTheme.typography.titleMedium)
+                        gpsStatus?.let { Text(it, color = Color.Gray) }
+                        Button(
+                            onClick = {
+                                try {
+                                    fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                                        if (loc != null) {
+                                            viewModel.updateProfile(mapOf("lat" to loc.latitude, "lon" to loc.longitude))
+                                            gpsStatus = "GPS obtenido: ${loc.latitude}, ${loc.longitude}"
+                                            Toast.makeText(context, "Ubicación GPS guardada", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            gpsStatus = "No se pudo obtener la ubicación GPS"
+                                        }
+                                    }
+                                } catch (e: SecurityException) {
+                                    gpsStatus = "Permiso GPS no concedido"
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Obtener mi ubicación GPS actual")
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
+            Text("Finalizar y Volver")
+        }
+    }
+}
+
+@Composable
+fun SupportScreen(
+    onBack: () -> Unit = {},
+    aiViewModel: AiViewModel = hiltViewModel(),
+    authViewModel: AuthViewModel = hiltViewModel()
+) {
     var phone by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
+    val user = authViewModel.currentUserData
 
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         Text("Soporte Técnico", style = MaterialTheme.typography.headlineMedium)
         Text("Se responderá en un plazo máximo de 48 horas. Por favor deje su número de celular para contactarlo.", color = Color.Gray)
         
         OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("Celular") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Describe tu problema") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+
+        AnimatedButton(
+            onClick = {
+                aiViewModel.draftSupportClaimWithAi(
+                    userName = user?.nombre ?: "Usuario",
+                    userRole = user?.rolId ?: "CIUDADANO",
+                    phone = phone,
+                    userDetail = description
+                ) { draft ->
+                    description = draft
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("✨ Redactar reclamo con IA")
+        }
+
+        if (aiViewModel.isLoading) {
+            LottieLoading()
+        }
+
+        aiViewModel.aiErrorMessage?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
 
         AnimatedButton(onClick = {
             val intent = Intent(Intent.ACTION_SENDTO).apply {

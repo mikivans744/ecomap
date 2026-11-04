@@ -36,12 +36,32 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             val uid = FirebaseAuth.getInstance().currentUser?.uid
             if (uid != null) {
-                // Fetch full data from firestore via repo
-                val user = repository.currentUser() // Needs to be full fetch in repo
-                // Update: I'll use a specific method for this
-                (repository as? UsuarioRepositoryImpl)?.let { repo ->
-                   // We don't have a direct getById, let's just use signIn logic or similar
-                }
+                com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                    .collection("usuarios").document(uid).get()
+                    .addOnSuccessListener { doc ->
+                        if (doc.exists()) {
+                            val user = Usuario(
+                                id = uid,
+                                email = doc.getString("email") ?: "",
+                                firebaseUid = uid,
+                                nombre = doc.getString("nombre") ?: "",
+                                rolId = doc.getString("rol") ?: "CIUDADANO",
+                                telefono = doc.getString("telefono"),
+                                reputacion = doc.getDouble("reputacion") ?: 0.0,
+                                puntos = doc.getLong("puntos")?.toInt() ?: 0,
+                                activo = doc.getBoolean("activo") ?: true,
+                                placaVehiculo = doc.getString("placa_vehiculo"),
+                                tipoVehiculo = doc.getString("tipo_vehiculo"),
+                                capacidadKg = doc.getDouble("capacidad_kg"),
+                                zonaCobertura = doc.getString("zona_cobertura"),
+                                nombreEmpresa = doc.getString("nombre_empresa"),
+                                direccionFija = doc.getString("direccion_fija"),
+                                lat = doc.getDouble("lat"),
+                                lon = doc.getDouble("lon")
+                            )
+                            currentUserData = user
+                        }
+                    }
             }
         }
     }
@@ -55,6 +75,7 @@ class AuthViewModel @Inject constructor(
                 val user = result.getOrNull()!!
                 currentUserData = user
                 sessionStore.saveSession(user.firebaseUid, user.rolId)
+                refreshUser()
                 Log.d("ECOMAP_AUTH", "Login exitoso para uid: ${user.firebaseUid}")
                 onSuccess()
                 uiState = AuthUiState.Idle
@@ -67,15 +88,20 @@ class AuthViewModel @Inject constructor(
     }
 
     fun register(email: String, pass: String, name: String, role: RoleCode, onSuccess: () -> Unit) {
+        val user = Usuario(id = "", email = email, firebaseUid = "", nombre = name, rolId = role.name)
+        registerWithDetails(user, pass, onSuccess)
+    }
+
+    fun registerWithDetails(user: Usuario, pass: String, onSuccess: () -> Unit) {
         viewModelScope.launch {
             uiState = AuthUiState.Loading
-            Log.d("ECOMAP_AUTH", "register llamado: $email rol=${role.name}")
-            val user = Usuario(id = "", email = email, firebaseUid = "", nombre = name, rolId = role.name)
+            Log.d("ECOMAP_AUTH", "registerWithDetails llamado: ${user.email} rol=${user.rolId}")
             val result = repository.register(user, pass)
             if (result.isSuccess) {
                 val registeredUser = result.getOrNull()!!
                 currentUserData = registeredUser
                 sessionStore.saveSession(registeredUser.firebaseUid, registeredUser.rolId)
+                refreshUser()
                 Log.d("ECOMAP_AUTH", "Registro completo exitoso: ${registeredUser.firebaseUid}")
                 onSuccess()
                 uiState = AuthUiState.Idle
@@ -87,11 +113,13 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun updateProfile(updates: Map<String, Any?>, onDone: () -> Unit) {
+    fun updateProfile(updates: Map<String, Any?>, onDone: () -> Unit = {}) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
         viewModelScope.launch {
             uiState = AuthUiState.Loading
-            val result = (repository as? UsuarioRepositoryImpl)?.updateProfile(uid, updates) 
+            val fullUpdates = updates.toMutableMap()
+            fullUpdates["updatedAt"] = System.currentTimeMillis()
+            val result = (repository as? UsuarioRepositoryImpl)?.updateProfile(uid, fullUpdates)
                 ?: Result.failure(Exception("Repo type error"))
             
             if (result.isSuccess) {
@@ -136,6 +164,7 @@ class AuthViewModel @Inject constructor(
     private fun mapError(e: Throwable?): String {
         val message = e?.message ?: ""
         return when {
+            message.contains("Cuenta desactivada") -> message
             message.contains("CONFIGURATION_NOT_FOUND") || message.contains("operation-not-allowed") -> 
                 "Proveedor no habilitado en Firebase"
             message.contains("email-already-in-use") -> "Este correo ya está registrado"

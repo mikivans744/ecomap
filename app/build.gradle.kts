@@ -26,8 +26,6 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        manifestPlaceholders["MAPBOX_ACCESS_TOKEN"] = secret("MAPBOX_ACCESS_TOKEN")
-        buildConfigField("String", "MAPBOX_TOKEN", "\"${secret("MAPBOX_ACCESS_TOKEN")}\"")
         buildConfigField("String", "GEMINI_API_KEY", "\"${secret("GEMINI_API_KEY")}\"")
         buildConfigField("boolean", "USE_MONGO", secret("USE_MONGO").ifBlank { "false" })
         buildConfigField("String", "MONGO_API_KEY", "\"${secret("MONGO_API_KEY")}\"")
@@ -74,11 +72,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     kapt(libs.androidx.room.compiler)
     implementation(libs.androidx.datastore.preferences)
-    // Mapbox requiere un MAPBOX_DOWNLOADS_TOKEN real para resolver su repositorio privado.
-    if (secret("MAPBOX_DOWNLOADS_TOKEN").isNotBlank() && !secret("MAPBOX_DOWNLOADS_TOKEN").startsWith("REEMPLAZAR")) {
-        implementation(libs.mapbox.maps)
-        implementation(libs.mapbox.navigation)
-    }
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation(libs.tflite)
     implementation(libs.tflite.support)
     implementation(libs.androidx.credentials)

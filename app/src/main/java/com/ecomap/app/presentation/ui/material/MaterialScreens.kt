@@ -5,14 +5,18 @@ import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,18 +28,25 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.ecomap.app.domain.model.*
 import com.ecomap.app.util.CameraUtils
+import com.ecomap.app.util.NetworkUtils
+import com.ecomap.app.util.OfflineBanner
+import com.ecomap.app.util.PublicationCardSkeleton
 import com.ecomap.app.presentation.ui.auth.AnimatedButton
 import com.ecomap.app.presentation.ui.auth.LottieLoading
+import com.ecomap.app.presentation.ui.ai.AiViewModel
 import com.ecomap.app.presentation.ui.logistics.InteractionViewModel
 import com.ecomap.app.presentation.ui.logistics.InteractionUiState
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PublishMaterialScreen(
     onBack: () -> Unit = {},
-    viewModel: MaterialViewModel = hiltViewModel()
+    viewModel: MaterialViewModel = hiltViewModel(),
+    aiViewModel: AiViewModel = hiltViewModel()
 ) {
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -53,6 +64,39 @@ fun PublishMaterialScreen(
 
     Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Text("Publicar material", style = MaterialTheme.typography.headlineMedium, color = Color.Black)
+        
+        AnimatedButton(
+            onClick = {
+                aiViewModel.draftPublicationWithAi(
+                    context = context,
+                    imageUri = imageUri,
+                    userText = description.ifBlank { title }
+                ) { newTitle, newDesc, newCat, newWeight ->
+                    title = newTitle
+                    description = newDesc
+                    weight = newWeight.toString()
+                    try {
+                        selectedCategory = MaterialCategory.valueOf(newCat)
+                    } catch (e: Exception) {
+                        selectedCategory = MaterialCategory.PLASTICO
+                    }
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("✨ Redactar con IA")
+        }
+
+        if (aiViewModel.isLoading) {
+            LottieLoading()
+        }
+
+        aiViewModel.aiErrorMessage?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+
         ExposedDropdownMenuBox(expanded = categoryExpanded, onExpandedChange = { categoryExpanded = !categoryExpanded }) {
             OutlinedTextField(value = selectedCategory.name, onValueChange = {}, readOnly = true, label = { Text("Categoría") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.Black, unfocusedTextColor = Color.Black))
             ExposedDropdownMenu(expanded = categoryExpanded, onDismissRequest = { categoryExpanded = false }) {
@@ -78,54 +122,111 @@ fun PublishMaterialScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MaterialsListScreen() {
+fun MaterialsListScreen(
+    viewModel: MaterialViewModel = hiltViewModel()
+) {
     val uid = FirebaseAuth.getInstance().currentUser?.uid
-    var publications by remember { mutableStateOf<List<Publicacion>>(emptyList()) }
     val context = LocalContext.current
-
-    LaunchedEffect(Unit) {
-        FirebaseFirestore.getInstance().collection("publicaciones")
-            .whereEqualTo("usuarioId", uid)
-            .addSnapshotListener { snapshot, _ ->
-                val list = snapshot?.documents?.mapNotNull { doc ->
-                    Publicacion(
-                        id = doc.id,
-                        usuarioId = doc.getString("usuarioId") ?: "",
-                        categoriaId = doc.getString("categoriaId") ?: "",
-                        estadoId = doc.getString("estado") ?: "DISPONIBLE",
-                        titulo = doc.getString("titulo") ?: "",
-                        descripcion = doc.getString("descripcion") ?: "",
-                        pesoKg = doc.getDouble("pesoKg") ?: 0.0,
-                        precioSugerido = doc.getDouble("precioSugerido") ?: 0.0,
-                        calidad = doc.getString("calidad") ?: "",
-                        imagenUrl = doc.getString("imagenUrl"),
-                        lat = doc.getDouble("lat") ?: 0.0,
-                        lon = doc.getDouble("lon") ?: 0.0
-                    )
-                } ?: emptyList()
-                publications = list
-            }
+    val coroutineScope = rememberCoroutineScope()
+    
+    val allPublications by viewModel.publications.collectAsState(initial = emptyList())
+    val userPublications = remember(allPublications, uid) {
+        if (uid.isNullOrBlank()) allPublications else allPublications.filter { it.usuarioId == uid || it.usuarioId.isEmpty() }
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Mis Publicaciones", style = MaterialTheme.typography.headlineMedium)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(publications) { pub ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(pub.titulo, style = MaterialTheme.typography.titleLarge)
-                        Text("${pub.categoriaId} · ${pub.pesoKg} kg")
-                        Text("Estado: ${pub.estadoId}")
-                        Row(Modifier.padding(top = 8.dp)) {
-                            AnimatedButton(onClick = {
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    action = Intent.ACTION_SEND
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_TEXT, "Ubicación de mi publicación: https://maps.google.com/?q=${pub.lat},${pub.lon}")
+    var isRefreshing by remember { mutableStateOf(false) }
+    var expandedPubId by remember { mutableStateOf<String?>(null) }
+
+    Column(Modifier.fillMaxSize()) {
+        OfflineBanner(visible = !NetworkUtils.isNetworkAvailable(context))
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                coroutineScope.launch {
+                    isRefreshing = true
+                    delay(1000)
+                    isRefreshing = false
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Text("Mis Publicaciones", style = MaterialTheme.typography.headlineMedium)
+                Spacer(Modifier.height(12.dp))
+
+                if (userPublications.isEmpty() && isRefreshing) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        repeat(3) { PublicationCardSkeleton() }
+                    }
+                } else if (userPublications.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No tienes publicaciones registradas.", color = Color.Gray)
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(userPublications) { pub ->
+                            val isExpanded = expandedPubId == pub.id
+                            val animatedElevation by animateDpAsState(targetValue = if (isExpanded) 8.dp else 2.dp, label = "cardElevation")
+
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { expandedPubId = if (isExpanded) null else pub.id },
+                                shape = RoundedCornerShape(16.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = animatedElevation)
+                            ) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(pub.titulo, style = MaterialTheme.typography.titleLarge)
+                                        AssistChip(
+                                            onClick = {},
+                                            label = { Text(pub.categoriaId) },
+                                            colors = AssistChipDefaults.assistChipColors(
+                                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                                            )
+                                        )
+                                    }
+
+                                    Text("${pub.pesoKg} kg · Estado: ${pub.estadoId}", style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray)
+
+                                    AnimatedVisibility(visible = isExpanded) {
+                                        Column(
+                                            modifier = Modifier.padding(top = 8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            if (pub.descripcion.isNotBlank()) {
+                                                Text("Descripción: ${pub.descripcion}", style = MaterialTheme.typography.bodySmall)
+                                            }
+                                            if (!pub.imagenUrl.isNullOrBlank()) {
+                                                AsyncImage(
+                                                    model = pub.imagenUrl,
+                                                    contentDescription = null,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(180.dp)
+                                                )
+                                            }
+                                            Row(Modifier.padding(top = 8.dp)) {
+                                                AnimatedButton(onClick = {
+                                                    val intent = Intent(Intent.ACTION_SEND).apply {
+                                                        action = Intent.ACTION_SEND
+                                                        type = "text/plain"
+                                                        putExtra(Intent.EXTRA_TEXT, "Ubicación de mi publicación: https://maps.google.com/?q=${pub.lat},${pub.lon}")
+                                                    }
+                                                    context.startActivity(Intent.createChooser(intent, "Compartir ubicación"))
+                                                }) { Text("Compartir ubicación GPS") }
+                                            }
+                                        }
+                                    }
                                 }
-                                context.startActivity(Intent.createChooser(intent, "Compartir ubicación"))
-                            }) { Text("Compartir ubicación") }
+                            }
                         }
                     }
                 }
@@ -171,7 +272,11 @@ fun OfferToCenterScreen(
             Text("Selecciona un Centro", style = MaterialTheme.typography.headlineMedium)
             LazyColumn {
                 items(centers) { center ->
-                    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedCenter = center; step = 2 }) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedCenter = center; step = 2 },
+                        shape = RoundedCornerShape(16.dp),
+                        elevation = CardDefaults.cardElevation(2.dp)
+                    ) {
                         Column(Modifier.padding(16.dp)) {
                             Text(center.nombreEmpresa ?: center.nombre, style = MaterialTheme.typography.titleMedium)
                         }

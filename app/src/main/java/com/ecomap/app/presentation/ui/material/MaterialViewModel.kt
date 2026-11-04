@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.ecomap.app.domain.model.Publicacion
 import com.ecomap.app.domain.repository.MaterialRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -17,6 +18,8 @@ import javax.inject.Inject
 class MaterialViewModel @Inject constructor(
     private val repository: MaterialRepository
 ) : ViewModel() {
+
+    val publications: Flow<List<Publicacion>> = repository.publications()
 
     var uiState by mutableStateOf<MaterialUiState>(MaterialUiState.Idle)
         private set
