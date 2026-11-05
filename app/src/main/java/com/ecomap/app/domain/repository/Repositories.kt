@@ -1,7 +1,7 @@
 package com.ecomap.app.domain.repository
 import com.ecomap.app.domain.model.*
 import kotlinx.coroutines.flow.Flow
-interface UsuarioRepository { suspend fun signIn(email:String,password:String): Result<Usuario>; suspend fun register(user:Usuario,password:String):Result<Usuario>; suspend fun resetPassword(email:String):Result<Unit>; suspend fun currentUser():Usuario? }
+interface UsuarioRepository { suspend fun signIn(email:String,password:String): Result<Usuario>; suspend fun register(user:Usuario,password:String):Result<Usuario>; suspend fun resetPassword(email:String):Result<Unit>; suspend fun currentUser():Usuario?; suspend fun setActive(uid:String,activo:Boolean):Result<Unit> }
 interface MaterialRepository { 
     fun publications():Flow<List<Publicacion>>
     suspend fun publish(item:Publicacion):Result<Publicacion>

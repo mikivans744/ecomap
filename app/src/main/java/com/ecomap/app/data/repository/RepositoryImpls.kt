@@ -9,6 +9,11 @@ import com.ecomap.app.domain.repository.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import com.ecomap.app.data.local.toEntity
+import com.ecomap.app.data.local.toPublicacion
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -25,6 +30,9 @@ class UsuarioRepositoryImpl @Inject constructor(
         val authResult = auth.signInWithEmailAndPassword(email, password).await()
         val uid = authResult.user?.uid ?: throw Exception("Usuario no encontrado")
         val doc = firestore.collection("usuarios").document(uid).get().await()
+        if (doc.exists() && doc.getBoolean("activo") == false) {
+            throw Exception("Cuenta desactivada por el administrador")
+        }
         val user = Usuario(
             id = uid,
             email = email,
@@ -34,6 +42,7 @@ class UsuarioRepositoryImpl @Inject constructor(
             telefono = doc.getString("telefono"),
             reputacion = doc.getDouble("reputacion") ?: 0.0,
             puntos = doc.getLong("puntos")?.toInt() ?: 0,
+            activo = doc.getBoolean("activo") ?: true,
             placaVehiculo = doc.getString("placa_vehiculo"),
             tipoVehiculo = doc.getString("tipo_vehiculo"),
             capacidadKg = doc.getDouble("capacidad_kg"),
@@ -52,10 +61,11 @@ class UsuarioRepositoryImpl @Inject constructor(
         val uid = authResult.user?.uid ?: throw Exception("Error al crear cuenta: UID nulo")
         Log.d("ECOMAP_AUTH", "Repo: Auth OK uid=$uid")
         
-        val newUser = user.copy(id = uid, firebaseUid = uid)
+        val now = System.currentTimeMillis()
+        val newUser = user.copy(id = uid, firebaseUid = uid, activo = true)
         
         Log.d("ECOMAP_AUTH", "Repo: Guardando en Firestore coleccion 'usuarios'...")
-        firestore.collection("usuarios").document(uid).set(mapOf(
+        val map = mutableMapOf<String, Any?>(
             "uid" to uid,
             "email" to newUser.email,
             "nombre" to newUser.nombre,
@@ -65,8 +75,17 @@ class UsuarioRepositoryImpl @Inject constructor(
             "puntos" to 0,
             "lat" to 0.0,
             "lon" to 0.0,
-            "creado_at" to System.currentTimeMillis()
-        )).await()
+            "activo" to true,
+            "creado_at" to now,
+            "createdAt" to now,
+            "updatedAt" to now
+        )
+        newUser.tipoVehiculo?.let { map["tipo_vehiculo"] = it }
+        newUser.placaVehiculo?.let { map["placa_vehiculo"] = it }
+        newUser.nombreEmpresa?.let { map["nombre_empresa"] = it }
+        newUser.direccionFija?.let { map["direccion_fija"] = it }
+
+        firestore.collection("usuarios").document(uid).set(map).await()
         Log.d("ECOMAP_AUTH", "Repo: Firestore OK")
         
         Result.success(newUser)
@@ -84,6 +103,14 @@ class UsuarioRepositoryImpl @Inject constructor(
         Usuario(id = it.uid, email = it.email ?: "", firebaseUid = it.uid, nombre = "", rolId = "")
     }
 
+    override suspend fun setActive(uid: String, activo: Boolean): Result<Unit> = try {
+        firestore.collection("usuarios").document(uid).update(mapOf(
+            "activo" to activo,
+            "updatedAt" to System.currentTimeMillis()
+        )).await()
+        Result.success(Unit)
+    } catch (e: Exception) { Result.failure(e) }
+
     suspend fun updateProfile(uid: String, updates: Map<String, Any?>): Result<Unit> = try {
         firestore.collection("usuarios").document(uid).update(updates).await()
         Result.success(Unit)
@@ -97,9 +124,24 @@ class MaterialRepositoryImpl @Inject constructor(
 ) : MaterialRepository {
     
     override fun publications(): Flow<List<Publicacion>> = callbackFlow {
+        CoroutineScope(Dispatchers.IO).launch {
+            val cached = db.materialDao().getAll().map { it.toPublicacion() }
+            if (cached.isNotEmpty()) {
+                trySend(cached)
+            }
+        }
+
         val listener = firestore.collection("publicaciones")
-            .addSnapshotListener { snapshot, _ ->
-                val list = snapshot?.documents?.mapNotNull { doc ->
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    CoroutineScope(Dispatchers.IO).launch {
+                        val local = db.materialDao().getAll().map { it.toPublicacion() }
+                        trySend(local)
+                    }
+                    return@addSnapshotListener
+                }
+
+                val list = snapshot.documents.mapNotNull { doc ->
                     Publicacion(
                         id = doc.id,
                         usuarioId = doc.getString("usuarioId") ?: "",
@@ -114,7 +156,12 @@ class MaterialRepositoryImpl @Inject constructor(
                         lat = doc.getDouble("lat") ?: 0.0,
                         lon = doc.getDouble("lon") ?: 0.0
                     )
-                } ?: emptyList()
+                }
+
+                CoroutineScope(Dispatchers.IO).launch {
+                    db.materialDao().upsertAll(list.map { it.toEntity() })
+                }
+
                 trySend(list)
             }
         awaitClose { listener.remove() }
@@ -222,8 +269,17 @@ class OfertaRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore
 ) : OfertaRepository {
     override suspend fun create(offer: Oferta): Result<Oferta> = try {
-        firestore.collection("ofertas").add(offer).await()
-        Result.success(offer)
+        val data = mapOf(
+            "publicacionId" to offer.publicacionId,
+            "ciudadanoId" to offer.ofertanteId,
+            "recolectorId" to offer.ofertanteId,
+            "precio" to offer.monto,
+            "mensaje" to offer.mensaje,
+            "estado" to "PENDIENTE",
+            "createdAt" to System.currentTimeMillis()
+        )
+        val docRef = firestore.collection("ofertas").add(data).await()
+        Result.success(offer.copy(id = docRef.id))
     } catch(e:Exception) { Result.failure(e) }
 
     override suspend fun updateStatus(id: String, status: NegotiationStatus): Result<Unit> = try {
@@ -260,8 +316,22 @@ class OfertaCentroRepositoryImpl @Inject constructor(
     }
 
     override suspend fun create(offer: OfertaCentro): Result<OfertaCentro> = try {
-        firestore.collection("ofertas_centro").add(offer).await()
-        Result.success(offer)
+        val data = mapOf(
+            "recolectorId" to offer.recolectorId,
+            "centroId" to offer.centroId,
+            "categoria" to offer.categoria,
+            "pesoKg" to offer.pesoKg,
+            "precioSugerido" to offer.precioSugerido,
+            "fotoUrl" to offer.fotoUrl,
+            "estado" to offer.estado.name,
+            "lat" to offer.lat,
+            "lon" to offer.lon,
+            "weightConfirmed" to offer.weightConfirmed,
+            "signatureUrl" to offer.signatureUrl,
+            "createdAt" to System.currentTimeMillis()
+        )
+        val docRef = firestore.collection("ofertas_centro").add(data).await()
+        Result.success(offer.copy(id = docRef.id))
     } catch(e:Exception) { Result.failure(e) }
 
     override suspend fun updateStatus(id: String, status: CenterOfferStatus, weight: Double?, signature: String?): Result<Unit> = try {

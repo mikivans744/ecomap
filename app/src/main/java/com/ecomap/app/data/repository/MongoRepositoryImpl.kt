@@ -35,6 +35,7 @@ class MongoRepositoryImpl @Inject constructor(
     override suspend fun signIn(e: String, p: String): Result<Usuario> = Result.failure(Exception("Not implemented for Mongo yet"))
     override suspend fun resetPassword(e: String): Result<Unit> = Result.failure(Exception("Not implemented for Mongo yet"))
     override suspend fun currentUser(): Usuario? = null
+    override suspend fun setActive(uid: String, activo: Boolean): Result<Unit> = Result.failure(Exception("Not implemented for Mongo yet"))
     override fun publications(): Flow<List<Publicacion>> = flow { emit(emptyList()) }
     override suspend fun publish(item: Publicacion): Result<Publicacion> = Result.success(item)
     override suspend fun syncPending(): Int = 0

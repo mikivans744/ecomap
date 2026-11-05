@@ -5,7 +5,6 @@ import android.util.Log
 import com.google.firebase.FirebaseApp
 import dagger.hilt.android.HiltAndroidApp
 import com.ecomap.app.util.NotificationChannels
-import com.mapbox.common.MapboxOptions
 import com.ecomap.app.data.remote.DataSeeder
 import com.ecomap.app.domain.repository.MaterialRepository
 import kotlinx.coroutines.CoroutineScope
@@ -29,15 +28,6 @@ class EcoMapApplication : Application() {
         }
 
         NotificationChannels.create(this)
-        
-        // b) Inicialización defensiva de Mapbox
-        try {
-            if (BuildConfig.MAPBOX_TOKEN.isNotBlank() && !BuildConfig.MAPBOX_TOKEN.startsWith("pk.placeholder")) {
-                MapboxOptions.accessToken = BuildConfig.MAPBOX_TOKEN
-            }
-        } catch (e: Exception) {
-            Log.e("ECOMAP_INIT", "Error initializing Mapbox", e)
-        }
         
         // c) Reintento no bloqueante y seguro
         CoroutineScope(Dispatchers.IO).launch {

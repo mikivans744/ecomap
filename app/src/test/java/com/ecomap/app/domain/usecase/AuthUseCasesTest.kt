@@ -15,6 +15,7 @@ class AuthUseCasesTest {
         override suspend fun register(u: Usuario, p: String) = Result.success(u)
         override suspend fun resetPassword(e: String) = Result.success(Unit)
         override suspend fun currentUser() = null
+        override suspend fun setActive(uid: String, activo: Boolean) = Result.success(Unit)
     }
 
     @Test

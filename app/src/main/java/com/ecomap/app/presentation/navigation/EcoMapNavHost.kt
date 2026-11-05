@@ -1,6 +1,7 @@
 package com.ecomap.app.presentation.navigation
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
@@ -9,6 +10,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -31,6 +34,7 @@ object Routes {
     const val RegisterCenter = "register_center"
     const val Recover = "recover"
     const val Profile = "profile"
+    const val CompleteProfile = "complete_profile"
     const val Materials = "materials"
     const val Publish = "publish"
     const val OfferCenter = "offer_center"
@@ -103,12 +107,16 @@ fun EcoMapNavHost(navController: NavHostController = rememberNavController()) {
             ProfileScreen(
                 onBack = { navController.popBackStack() },
                 onNavigateToSupport = { navController.navigate(Routes.Support) },
+                onNavigateToCompleteProfile = { navController.navigate(Routes.CompleteProfile) },
                 onLogout = {
                     navController.navigate(Routes.Login) {
                         popUpTo(0) { inclusive = true }
                     }
                 }
             ) 
+        }
+        composable(Routes.CompleteProfile) {
+            CompleteProfileScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.Support) { SupportScreen(onBack = { navController.popBackStack() }) }
         composable(Routes.Materials) { MaterialsListScreen() }
@@ -121,6 +129,7 @@ fun EcoMapNavHost(navController: NavHostController = rememberNavController()) {
         composable(Routes.Map) {
             MapEcomapScreen(
                 onNavigateToProfile = { navController.navigate(Routes.Profile) },
+                onNavigateToCompleteProfile = { navController.navigate(Routes.CompleteProfile) },
                 onNavigateToAI = { navController.navigate(Routes.Assistant) },
                 onNavigateToPublish = { navController.navigate(Routes.Publish) },
                 onNavigateToOfferCenter = { navController.navigate(Routes.OfferCenter) },
@@ -136,13 +145,24 @@ fun EcoMapNavHost(navController: NavHostController = rememberNavController()) {
 @Composable
 fun SplashScreen(onFinished: () -> Unit) {
     val composition by rememberLottieComposition(LottieCompositionSpec.Asset("lottie/splash_reciclaje.json"))
-    
+    var startExitAnimation by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(targetValue = if (startExitAnimation) 1.15f else 1.0f, animationSpec = tween(500), label = "splashScale")
+    val alpha by animateFloatAsState(targetValue = if (startExitAnimation) 0.0f else 1.0f, animationSpec = tween(500), label = "splashAlpha")
+
     LaunchedEffect(Unit) {
-        delay(2500)
+        delay(2000)
+        startExitAnimation = true
+        delay(500)
         onFinished()
     }
 
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .scale(scale)
+            .alpha(alpha),
+        contentAlignment = Alignment.Center
+    ) {
         LottieAnimation(
             composition = composition,
             iterations = LottieConstants.IterateForever,
