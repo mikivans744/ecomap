@@ -10,7 +10,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -66,6 +69,10 @@ fun MapEcomapScreen(
     val currentUserDoc = remember { mutableStateOf<Usuario?>(null) }
 
     var selectedItem by remember { mutableStateOf<SelectedMapItem?>(null) }
+    var showNotificationsSheet by remember { mutableStateOf(false) }
+
+    val notifications by viewModel.notifications.collectAsState()
+    val unreadCount = remember(notifications) { notifications.count { !it.leido } }
 
     LaunchedEffect(Unit) {
         val uid = FirebaseAuth.getInstance().currentUser?.uid
@@ -197,26 +204,54 @@ fun MapEcomapScreen(
 
     Scaffold(
         floatingActionButton = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                FloatingActionButton(onClick = {
-                    fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
-                        loc?.let {
-                            mapView.controller.animateTo(GeoPoint(it.latitude, it.longitude))
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FloatingActionButton(
+                    onClick = {
+                        fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                            loc?.let {
+                                mapView.controller.animateTo(GeoPoint(it.latitude, it.longitude))
+                            }
                         }
                     }
-                }) { Text("📍") }
-                
-                if (userRole.value == "RECOLECTOR") {
-                    FloatingActionButton(onClick = onNavigateToOfferCenter, containerColor = roleColor, contentColor = Color.White) {
-                        Text("🤝")
-                    }
-                } else if (userRole.value == "CIUDADANO") {
-                    FloatingActionButton(onClick = onNavigateToPublish, containerColor = roleColor, contentColor = Color.White) {
-                        Text("+", style = MaterialTheme.typography.headlineMedium)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("📍")
+                        Text("Mi ubicación", style = MaterialTheme.typography.labelSmall)
                     }
                 }
                 
-                FloatingActionButton(onClick = onNavigateToAI) { Text("🤖") }
+                if (userRole.value == "RECOLECTOR") {
+                    ExtendedFloatingActionButton(
+                        onClick = onNavigateToOfferCenter,
+                        containerColor = roleColor,
+                        contentColor = Color.White,
+                        icon = { Text("🤝") },
+                        text = { Text("Ofertar a Centro") }
+                    )
+                } else if (userRole.value == "CIUDADANO") {
+                    ExtendedFloatingActionButton(
+                        onClick = onNavigateToPublish,
+                        containerColor = roleColor,
+                        contentColor = Color.White,
+                        icon = { Text("+") },
+                        text = { Text("Publicar") }
+                    )
+                }
+                
+                ExtendedFloatingActionButton(
+                    onClick = onNavigateToAI,
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    icon = { Text("🤖") },
+                    text = { Text("Asistente") }
+                )
             }
         },
         bottomBar = {
@@ -265,7 +300,17 @@ fun MapEcomapScreen(
                                 colors = AssistChipDefaults.assistChipColors(containerColor = roleColor.copy(alpha = 0.15f), labelColor = roleColor)
                             )
                         }
-                        Text("🔔")
+                        BadgedBox(
+                            badge = {
+                                if (unreadCount > 0) {
+                                    Badge { Text(unreadCount.toString()) }
+                                }
+                            }
+                        ) {
+                            IconButton(onClick = { showNotificationsSheet = true }) {
+                                Text("🔔", style = MaterialTheme.typography.titleLarge)
+                            }
+                        }
                     }
                 }
 
@@ -328,6 +373,50 @@ fun MapEcomapScreen(
                                 modifier = Modifier.align(Alignment.End)
                             ) {
                                 Text("Cerrar")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showNotificationsSheet) {
+        ModalBottomSheet(onDismissRequest = { showNotificationsSheet = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Notificaciones 🔔", style = MaterialTheme.typography.headlineSmall)
+                if (notifications.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("🔔", style = MaterialTheme.typography.displayMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Text("No tienes notificaciones por ahora", color = Color.Gray)
+                        }
+                    }
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(notifications) { notif ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.markNotificationAsRead(notif.id) },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (notif.leido) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.primaryContainer
+                                )
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(notif.titulo, style = MaterialTheme.typography.titleMedium, color = Color.Black)
+                                        if (!notif.leido) {
+                                            Badge { Text("Nueva") }
+                                        }
+                                    }
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(notif.cuerpo, style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray)
+                                }
                             }
                         }
                     }

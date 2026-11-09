@@ -18,22 +18,33 @@ import com.google.ai.client.generativeai.type.content
 import com.google.ai.client.generativeai.type.generationConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.IOException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import javax.inject.Inject
+
+private const val MODEL_ID = "gemini-3.8-flash"
+private val MODEL_FALLBACK_LIST = listOf("gemini-3.8-flash", "gemini-3.8-flash-lite", "gemini-2.5-flash")
 
 @HiltViewModel
 class AiViewModel @Inject constructor() : ViewModel() {
 
-    private val generativeModel = GenerativeModel(
-        modelName = "gemini-1.5-flash",
-        apiKey = BuildConfig.GEMINI_API_KEY,
-        generationConfig = generationConfig {
-            temperature = 0.2f
-            maxOutputTokens = 600
-        }
-    )
+    private fun getGenerativeModel(modelName: String = MODEL_ID): GenerativeModel {
+        val apiKey = BuildConfig.GEMINI_API_KEY.ifBlank { "REEMPLAZAR" }
+        return GenerativeModel(
+            modelName = modelName,
+            apiKey = apiKey,
+            generationConfig = generationConfig {
+                temperature = 0.2f
+                maxOutputTokens = 600
+            }
+        )
+    }
 
     var response by mutableStateOf("")
         private set
@@ -44,25 +55,82 @@ class AiViewModel @Inject constructor() : ViewModel() {
     var aiErrorMessage by mutableStateOf<String?>(null)
         private set
 
+    var debugTechnicalCause by mutableStateOf<String?>(null)
+        private set
+
+    private fun checkApiKeyConfigured(): Boolean {
+        val key = BuildConfig.GEMINI_API_KEY
+        if (key.isBlank() || key.startsWith("REEMPLAZAR")) {
+            val msg = "Falta configurar GEMINI_API_KEY en local.properties"
+            aiErrorMessage = msg
+            response = msg
+            debugTechnicalCause = "GEMINI_API_KEY no definida o con valor placeholder en BuildConfig"
+            return false
+        }
+        return true
+    }
+
     fun askGemini(prompt: String) {
         if (prompt.isBlank()) return
+        if (!checkApiKeyConfigured()) return
+
         viewModelScope.launch {
             isLoading = true
             aiErrorMessage = null
+            debugTechnicalCause = null
             try {
-                val result = generativeModel.generateContent(content {
-                    text("Eres un asistente de reciclaje para la app ECO-MAP. Responde de forma sencilla y en español: $prompt")
-                })
-                response = result.text ?: "No pude entender eso, ¿puedes repetir?"
+                val resultText = executeWithRetriesAndFallbacks("Eres un asistente de reciclaje para la app ECO-MAP. Responde de forma sencilla y en español: $prompt")
+                response = resultText.ifBlank { "No pude entender eso, ¿puedes repetir?" }
             } catch (e: Exception) {
-                Log.e("ECOMAP_AI", "Error en askGemini", e)
+                Log.e("ECOMAP_IA", "Excepción completa en askGemini", e)
                 val userMsg = mapAiError(e)
                 aiErrorMessage = userMsg
                 response = userMsg
+                if (BuildConfig.DEBUG) {
+                    debugTechnicalCause = "Debug [${e.javaClass.simpleName}]: ${e.localizedMessage ?: e.message}"
+                }
             } finally {
                 isLoading = false
             }
         }
+    }
+
+    private suspend fun executeWithRetriesAndFallbacks(promptText: String, bitmap: Bitmap? = null): String = withContext(Dispatchers.IO) {
+        var lastException: Exception? = null
+
+        for (modelName in MODEL_FALLBACK_LIST) {
+            val model = getGenerativeModel(modelName)
+            val contentObj = content {
+                bitmap?.let { image(it) }
+                text(promptText)
+            }
+
+            for (attempt in 0..2) {
+                try {
+                    val res = model.generateContent(contentObj).text ?: ""
+                    if (res.isNotBlank()) {
+                        return@withContext res
+                    }
+                } catch (e: Exception) {
+                    lastException = e
+                    Log.w("ECOMAP_IA", "Fallo modelo $modelName (intento $attempt): ${e.message}", e)
+
+                    val is503 = e.message?.contains("503") == true || e.javaClass.simpleName.contains("ServerException") || e.message?.contains("UNAVAILABLE") == true
+                    if (is503) {
+                        withContext(Dispatchers.Main) {
+                            aiErrorMessage = "La IA tiene alta demanda ahora (503). Reintentando…"
+                        }
+                    }
+
+                    if (attempt < 2) {
+                        val backoff = if (attempt == 0) 1500L else 3000L
+                        delay(backoff)
+                    }
+                }
+            }
+        }
+
+        throw lastException ?: Exception("No se pudo obtener respuesta de la IA.")
     }
 
     fun draftPublicationWithAi(
@@ -71,9 +139,12 @@ class AiViewModel @Inject constructor() : ViewModel() {
         userText: String,
         onSuccess: (titulo: String, descripcion: String, categoriaId: String, pesoKg: Double) -> Unit
     ) {
+        if (!checkApiKeyConfigured()) return
+
         viewModelScope.launch {
             isLoading = true
             aiErrorMessage = null
+            debugTechnicalCause = null
             try {
                 val bitmap: Bitmap? = imageUri?.let { uriToBitmap(context, it) }
                 val promptText = """
@@ -84,13 +155,7 @@ class AiViewModel @Inject constructor() : ViewModel() {
                     Categorías válidas: PLASTICO, METAL, VIDRIO, PAPEL_CARTON, ELECTRONICO, TEXTIL, OTRO.
                 """.trimIndent()
 
-                val resultText = withContext(Dispatchers.IO) {
-                    val contentObj = content {
-                        bitmap?.let { image(it) }
-                        text(promptText)
-                    }
-                    generativeModel.generateContent(contentObj).text ?: ""
-                }
+                val resultText = executeWithRetriesAndFallbacks(promptText, bitmap)
 
                 val cleanJson = extractJsonString(resultText)
                 try {
@@ -105,12 +170,15 @@ class AiViewModel @Inject constructor() : ViewModel() {
 
                     onSuccess(titulo, descripcion, finalCat, pesoKg)
                 } catch (jsonErr: Exception) {
-                    Log.w("ECOMAP_AI", "Respuesta no es JSON válido, usando fallback texto plano", jsonErr)
+                    Log.w("ECOMAP_IA", "Respuesta no es JSON válido, usando fallback texto plano", jsonErr)
                     onSuccess("Material Reciclable", resultText.ifBlank { userText }, "PLASTICO", 1.0)
                 }
             } catch (e: Exception) {
-                Log.e("ECOMAP_AI", "Error en draftPublicationWithAi", e)
+                Log.e("ECOMAP_IA", "Excepción completa en draftPublicationWithAi", e)
                 aiErrorMessage = mapAiError(e)
+                if (BuildConfig.DEBUG) {
+                    debugTechnicalCause = "Debug [${e.javaClass.simpleName}]: ${e.localizedMessage ?: e.message}"
+                }
             } finally {
                 isLoading = false
             }
@@ -124,9 +192,12 @@ class AiViewModel @Inject constructor() : ViewModel() {
         userDetail: String,
         onSuccess: (draftText: String) -> Unit
     ) {
+        if (!checkApiKeyConfigured()) return
+
         viewModelScope.launch {
             isLoading = true
             aiErrorMessage = null
+            debugTechnicalCause = null
             try {
                 val promptText = """
                     Eres el asistente de soporte técnico de ECO-MAP. Redacta un reclamo/mensaje de soporte formal y respetuoso en español basado en estos datos:
@@ -137,9 +208,7 @@ class AiViewModel @Inject constructor() : ViewModel() {
                     Escribe solo el cuerpo del correo formal en texto plano.
                 """.trimIndent()
 
-                val resultText = withContext(Dispatchers.IO) {
-                    generativeModel.generateContent(content { text(promptText) }).text ?: ""
-                }
+                val resultText = executeWithRetriesAndFallbacks(promptText)
 
                 if (resultText.isNotBlank()) {
                     onSuccess(resultText.trim())
@@ -147,8 +216,11 @@ class AiViewModel @Inject constructor() : ViewModel() {
                     aiErrorMessage = "No se pudo generar el borrador."
                 }
             } catch (e: Exception) {
-                Log.e("ECOMAP_AI", "Error en draftSupportClaimWithAi", e)
+                Log.e("ECOMAP_IA", "Excepción completa en draftSupportClaimWithAi", e)
                 aiErrorMessage = mapAiError(e)
+                if (BuildConfig.DEBUG) {
+                    debugTechnicalCause = "Debug [${e.javaClass.simpleName}]: ${e.localizedMessage ?: e.message}"
+                }
             } finally {
                 isLoading = false
             }
@@ -161,9 +233,12 @@ class AiViewModel @Inject constructor() : ViewModel() {
         contextInfo: String,
         onSuccess: (suggestion: String) -> Unit
     ) {
+        if (!checkApiKeyConfigured()) return
+
         viewModelScope.launch {
             isLoading = true
             aiErrorMessage = null
+            debugTechnicalCause = null
             try {
                 val promptText = when (fieldKey) {
                     "zona_cobertura" -> "Sugiere en una sola frase breve (máximo 10 palabras en español) una zona o vecindario de cobertura de recolección para un recolector."
@@ -172,9 +247,7 @@ class AiViewModel @Inject constructor() : ViewModel() {
                     else -> "Sugiere un valor sugerido breve en español para el campo $fieldKey de un usuario $userRole."
                 }
 
-                val resultText = withContext(Dispatchers.IO) {
-                    generativeModel.generateContent(content { text(promptText) }).text ?: ""
-                }
+                val resultText = executeWithRetriesAndFallbacks(promptText)
 
                 if (resultText.isNotBlank()) {
                     onSuccess(resultText.trim())
@@ -182,8 +255,11 @@ class AiViewModel @Inject constructor() : ViewModel() {
                     aiErrorMessage = "No se obtuvo una sugerencia."
                 }
             } catch (e: Exception) {
-                Log.e("ECOMAP_AI", "Error en suggestProfileFieldWithAi", e)
+                Log.e("ECOMAP_IA", "Excepción completa en suggestProfileFieldWithAi", e)
                 aiErrorMessage = mapAiError(e)
+                if (BuildConfig.DEBUG) {
+                    debugTechnicalCause = "Debug [${e.javaClass.simpleName}]: ${e.localizedMessage ?: e.message}"
+                }
             } finally {
                 isLoading = false
             }
@@ -203,15 +279,19 @@ class AiViewModel @Inject constructor() : ViewModel() {
 
     private fun mapAiError(e: Throwable): String {
         val msg = e.message ?: ""
+        val className = e.javaClass.simpleName
         return when {
+            e is UnknownHostException || e is ConnectException || e is SocketTimeoutException || e is IOException ||
             msg.contains("UnknownHostException") || msg.contains("ConnectException") || msg.contains("Unable to resolve host") ->
-                "El asistente necesita conexión a internet. Intenta nuevamente cuando tengas red."
-            msg.contains("QuotaExceeded") || msg.contains("429") || msg.contains("RESOURCE_EXHAUSTED") ->
-                "El servicio está ocupado (límite de cuota alcanzado). Intenta de nuevo en unos momentos."
-            msg.contains("timeout") || msg.contains("SocketTimeoutException") ->
-                "La respuesta tardó demasiado. Por favor reintenta."
+                "Sin conexión a internet."
+            msg.contains("401") || msg.contains("403") || msg.contains("API_KEY_INVALID") || msg.contains("PERMISSION_DENIED") ->
+                "Clave de API inválida (revisa local.properties)"
+            msg.contains("429") || msg.contains("RESOURCE_EXHAUSTED") || msg.contains("QuotaExceeded") ->
+                "Cuota gratuita excedida, intenta en unos minutos"
+            msg.contains("503") || className.contains("ServerException") || msg.contains("UNAVAILABLE") ->
+                "IA con alta demanda, intenta en unos minutos"
             else ->
-                "El asistente necesita conexión o no pudo procesar la solicitud. Reintenta más tarde."
+                "Sin conexión a internet."
         }
     }
 

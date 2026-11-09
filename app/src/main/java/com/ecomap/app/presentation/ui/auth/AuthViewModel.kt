@@ -6,14 +6,18 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ecomap.app.BuildConfig
+import com.ecomap.app.data.datastore.SessionDataStore
+import com.ecomap.app.data.repository.UsuarioRepositoryImpl
 import com.ecomap.app.domain.model.RoleCode
 import com.ecomap.app.domain.model.Usuario
 import com.ecomap.app.domain.repository.UsuarioRepository
-import com.ecomap.app.data.datastore.SessionDataStore
-import com.ecomap.app.data.repository.UsuarioRepositoryImpl
+import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 @HiltViewModel
@@ -36,7 +40,7 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             val uid = FirebaseAuth.getInstance().currentUser?.uid
             if (uid != null) {
-                com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                FirebaseFirestore.getInstance()
                     .collection("usuarios").document(uid).get()
                     .addOnSuccessListener { doc ->
                         if (doc.exists()) {
@@ -119,7 +123,7 @@ class AuthViewModel @Inject constructor(
             uiState = AuthUiState.Loading
             val fullUpdates = updates.toMutableMap()
             fullUpdates["updatedAt"] = System.currentTimeMillis()
-            val result = (repository as? UsuarioRepositoryImpl)?.updateProfile(uid, fullUpdates)
+            val result = (repository as? UsuarioRepositoryImpl)?.updateProfile(uid, fullUpdates) 
                 ?: Result.failure(Exception("Repo type error"))
             
             if (result.isSuccess) {
@@ -141,6 +145,48 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    fun changePassword(currentPass: String, newPass: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val user = FirebaseAuth.getInstance().currentUser
+        val email = user?.email
+        if (user == null || email.isNullOrBlank()) {
+            onError("Usuario no autenticado")
+            return
+        }
+        if (newPass.length < 6) {
+            onError("La nueva contraseña es muy débil (mínimo 6 caracteres)")
+            return
+        }
+        if (currentPass == newPass) {
+            onError("La nueva contraseña debe ser distinta a la actual")
+            return
+        }
+
+        viewModelScope.launch {
+            uiState = AuthUiState.Loading
+            try {
+                val credential = EmailAuthProvider.getCredential(email, currentPass)
+                user.reauthenticate(credential).await()
+                user.updatePassword(newPass).await()
+                sendAdminSecurityAlert(email)
+                uiState = AuthUiState.Idle
+                onSuccess()
+            } catch (e: Exception) {
+                uiState = AuthUiState.Idle
+                val msg = e.message ?: ""
+                val mapped = when {
+                    msg.contains("invalid-credential") || msg.contains("wrong-password") || msg.contains("INVALID_PASSWORD") ->
+                        "La contraseña actual es incorrecta"
+                    msg.contains("requires-recent-login") || msg.contains("RECENT_LOGIN") ->
+                        "Por seguridad, esta acción requiere una sesión reciente. Se ha enviado un correo para cambiar tu contraseña."
+                    msg.contains("weak-password") ->
+                        "La nueva contraseña es muy débil (mínimo 6 caracteres)"
+                    else -> "Error al cambiar contraseña: ${e.localizedMessage ?: "intenta con el enlace de recuperación"}"
+                }
+                onError(mapped)
+            }
+        }
+    }
+
     fun resetPassword(email: String) {
         if (email.isBlank()) {
             uiState = AuthUiState.Error("Ingresa tu correo electrónico")
@@ -151,12 +197,32 @@ class AuthViewModel @Inject constructor(
             Log.d("ECOMAP_AUTH", "resetPassword llamado para: $email")
             val result = repository.resetPassword(email)
             if (result.isSuccess) {
+                sendAdminSecurityAlert(email)
                 Log.d("ECOMAP_AUTH", "Correo de recuperación enviado")
                 uiState = AuthUiState.Success
             } else {
                 val errorMsg = mapError(result.exceptionOrNull())
                 Log.e("ECOMAP_AUTH", "Error al resetear pass: $errorMsg")
                 uiState = AuthUiState.Error(errorMsg)
+            }
+        }
+    }
+
+    private fun sendAdminSecurityAlert(userEmail: String?) {
+        viewModelScope.launch {
+            try {
+                val data = mapOf(
+                    "paraUid" to "ADMIN",
+                    "titulo" to "Cambio de contraseña",
+                    "cuerpo" to "${userEmail ?: "Un usuario"} cambió o restableció su contraseña",
+                    "tipo" to "SEGURIDAD",
+                    "createdAt" to System.currentTimeMillis(),
+                    "leido" to false
+                )
+                FirebaseFirestore.getInstance().collection("notifications").add(data).await()
+                Log.d("ECOMAP_NOTIF", "Alerta de seguridad enviada a ADMIN para $userEmail")
+            } catch (e: Exception) {
+                Log.w("ECOMAP_NOTIF", "No se pudo notificar alerta de seguridad a ADMIN (reglas): ${e.message}")
             }
         }
     }

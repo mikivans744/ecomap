@@ -7,19 +7,56 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ecomap.app.domain.model.CategoriaMaterial
 import com.ecomap.app.domain.model.Publicacion
 import com.ecomap.app.domain.repository.MaterialRepository
+import com.ecomap.app.util.CategoryUtils
+import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class MaterialViewModel @Inject constructor(
-    private val repository: MaterialRepository
+    private val repository: MaterialRepository,
+    private val firestore: FirebaseFirestore
 ) : ViewModel() {
 
     val publications: Flow<List<Publicacion>> = repository.publications()
+
+    private val _categories = MutableStateFlow<List<CategoriaMaterial>>(CategoryUtils.defaultCategories)
+    val categories: StateFlow<List<CategoriaMaterial>> = _categories
+
+    init {
+        observeCategories()
+    }
+
+    private fun observeCategories() {
+        firestore.collection("categoria_material")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && !snapshot.isEmpty) {
+                    val list = snapshot.documents.mapNotNull { doc ->
+                        val cod = doc.getString("codigo") ?: doc.id
+                        val nom = doc.getString("nombre") ?: cod
+                        val nomMostrar = doc.getString("nombreMostrar") ?: nom
+                        CategoriaMaterial(
+                            id = doc.id,
+                            codigo = cod,
+                            nombre = nom,
+                            nombreMostrar = nomMostrar,
+                            precioBase = doc.getDouble("precio_base") ?: 0.0,
+                            color = doc.getString("color") ?: "#2E7D32"
+                        )
+                    }
+                    if (list.isNotEmpty()) {
+                        _categories.value = list
+                    }
+                }
+            }
+    }
 
     var uiState by mutableStateOf<MaterialUiState>(MaterialUiState.Idle)
         private set

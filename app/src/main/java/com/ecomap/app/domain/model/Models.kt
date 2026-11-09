@@ -33,7 +33,15 @@ data class Usuario(
     val updatedAt: Instant = Instant.now()
 )
 
-data class CategoriaMaterial(val id:String, val nombre:String, val precioBase:Double, val color:String, val activo:Boolean=true)
+data class CategoriaMaterial(
+    val id: String = "",
+    val codigo: String = "",
+    val nombre: String = "",
+    val nombreMostrar: String = nombre,
+    val precioBase: Double = 0.0,
+    val color: String = "#2E7D32",
+    val activo: Boolean = true
+)
 
 enum class PublicationStatus { DISPONIBLE, EN_NEGOCIACION, VENDIDO, CANCELADO }
 data class EstadoPublicacion(val id:String, val codigo:PublicationStatus, val nombre:String)
@@ -105,9 +113,40 @@ data class OfertaRecoleccion(
     val recolectorId: String,
     val monto: Double,
     val mensaje: String,
-    val estado: String = "PENDIENTE", // PENDIENTE, ACEPTADA, RECHAZADA
+    val estado: String = "PENDIENTE",
     val createdAt: Instant = Instant.now()
 )
 
 data class Vehiculo(val id:String,val usuarioId:String,val placa:String,val tipo:String,val capacidadKg:Double,val createdAt:Instant=Instant.now())
 data class Soporte(val id:String,val usuarioId:String,val categoria:String,val prioridad:String,val estado:String,val titulo:String,val descripcion:String,val respuesta:String?=null,val createdAt:Instant=Instant.now(),val resolvedAt:Instant?=null)
+
+data class TicketMessage(
+    val emisor: String = "ADMIN", // "ADMIN" or "USUARIO"
+    val texto: String = "",
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+data class SupportTicket(
+    val id: String = "",
+    val uid: String = "",
+    val nombre: String = "",
+    val email: String = "",
+    val celular: String = "",
+    val descripcion: String = "",
+    val tipo: String = "PROBLEMA_TECNICO",
+    val estado: String = "ABIERTO",
+    val respuestaAdmin: String? = null,
+    val respondidoAt: Long? = null,
+    val mensajes: List<TicketMessage> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+data class Notificacion(
+    val id: String,
+    val paraUid: String,
+    val titulo: String,
+    val cuerpo: String,
+    val tipo: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val leido: Boolean = false
+)

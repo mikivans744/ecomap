@@ -22,12 +22,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.ecomap.app.domain.model.*
 import com.ecomap.app.util.CameraUtils
+import com.ecomap.app.util.CategoryUtils
 import com.ecomap.app.util.NetworkUtils
 import com.ecomap.app.util.OfflineBanner
 import com.ecomap.app.util.PublicationCardSkeleton
@@ -48,10 +50,13 @@ fun PublishMaterialScreen(
     viewModel: MaterialViewModel = hiltViewModel(),
     aiViewModel: AiViewModel = hiltViewModel()
 ) {
+    val categories by viewModel.categories.collectAsState()
+    var selectedCategoryCode by remember { mutableStateOf(categories.firstOrNull()?.codigo ?: "PLASTICO") }
+    var selectedCategoryDisplay by remember { mutableStateOf(categories.firstOrNull()?.nombreMostrar ?: "Plástico") }
+    
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var weight by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf(MaterialCategory.PLASTICO) }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var categoryExpanded by remember { mutableStateOf(false) }
     
@@ -63,7 +68,7 @@ fun PublishMaterialScreen(
     }
 
     Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("Publicar material", style = MaterialTheme.typography.headlineMedium, color = Color.Black)
+        Text("Publicar material", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF111827))
         
         AnimatedButton(
             onClick = {
@@ -75,11 +80,8 @@ fun PublishMaterialScreen(
                     title = newTitle
                     description = newDesc
                     weight = newWeight.toString()
-                    try {
-                        selectedCategory = MaterialCategory.valueOf(newCat)
-                    } catch (e: Exception) {
-                        selectedCategory = MaterialCategory.PLASTICO
-                    }
+                    selectedCategoryCode = newCat
+                    selectedCategoryDisplay = CategoryUtils.getDisplayName(newCat, categories)
                 }
             },
             containerColor = MaterialTheme.colorScheme.tertiaryContainer,
@@ -98,16 +100,31 @@ fun PublishMaterialScreen(
         }
 
         ExposedDropdownMenuBox(expanded = categoryExpanded, onExpandedChange = { categoryExpanded = !categoryExpanded }) {
-            OutlinedTextField(value = selectedCategory.name, onValueChange = {}, readOnly = true, label = { Text("Categoría") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.Black, unfocusedTextColor = Color.Black))
+            OutlinedTextField(
+                value = selectedCategoryDisplay,
+                onValueChange = {},
+                readOnly = true,
+                label = { Text("Categoría") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color(0xFF111827), unfocusedTextColor = Color(0xFF111827))
+            )
             ExposedDropdownMenu(expanded = categoryExpanded, onDismissRequest = { categoryExpanded = false }) {
-                MaterialCategory.values().forEach { category ->
-                    DropdownMenuItem(text = { Text(category.name) }, onClick = { selectedCategory = category; categoryExpanded = false })
+                categories.forEach { category ->
+                    DropdownMenuItem(
+                        text = { Text(category.nombreMostrar.ifBlank { category.nombre }) },
+                        onClick = {
+                            selectedCategoryCode = category.codigo
+                            selectedCategoryDisplay = category.nombreMostrar.ifBlank { category.nombre }
+                            categoryExpanded = false
+                        }
+                    )
                 }
             }
         }
-        OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Título") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Descripción") }, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(value = weight, onValueChange = { weight = it }, label = { Text("Peso (kg)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Título") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color(0xFF111827), unfocusedTextColor = Color(0xFF111827)))
+        OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Descripción") }, modifier = Modifier.fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color(0xFF111827), unfocusedTextColor = Color(0xFF111827)))
+        OutlinedTextField(value = weight, onValueChange = { weight = it }, label = { Text("Peso (kg)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color(0xFF111827), unfocusedTextColor = Color(0xFF111827)))
         if (imageUri != null) {
             AsyncImage(model = imageUri, contentDescription = null, modifier = Modifier.size(200.dp))
             AnimatedButton(onClick = { imageUri = null }, outlined = true) { Text("Quitar foto") }
@@ -115,7 +132,7 @@ fun PublishMaterialScreen(
             AnimatedButton(onClick = { val uri = CameraUtils.createImageUri(context); imageUri = uri; cameraLauncher.launch(uri) }, modifier = Modifier.fillMaxWidth()) { Text("Tomar foto") }
         }
         if (state is MaterialUiState.Loading) LottieLoading() else {
-            AnimatedButton(onClick = { viewModel.publish(title, description, weight, selectedCategory.name, imageUri, onBack) }, modifier = Modifier.fillMaxWidth()) { Text("Publicar") }
+            AnimatedButton(onClick = { viewModel.publish(title, description, weight, selectedCategoryCode, imageUri, onBack) }, modifier = Modifier.fillMaxWidth()) { Text("Publicar") }
         }
         if (state is MaterialUiState.Error) Text(state.message, color = Color.Red)
         TextButton(onClick = onBack) { Text("Cancelar") }
@@ -131,6 +148,7 @@ fun MaterialsListScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
+    val categories by viewModel.categories.collectAsState()
     val allPublications by viewModel.publications.collectAsState(initial = emptyList())
     val userPublications = remember(allPublications, uid) {
         if (uid.isNullOrBlank()) allPublications else allPublications.filter { it.usuarioId == uid || it.usuarioId.isEmpty() }
@@ -154,7 +172,7 @@ fun MaterialsListScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
-                Text("Mis Publicaciones", style = MaterialTheme.typography.headlineMedium)
+                Text("Mis Publicaciones", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF111827))
                 Spacer(Modifier.height(12.dp))
 
                 if (userPublications.isEmpty() && isRefreshing) {
@@ -163,19 +181,23 @@ fun MaterialsListScreen(
                     }
                 } else if (userPublications.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No tienes publicaciones registradas.", color = Color.Gray)
+                        Text("No tienes publicaciones registradas.", color = Color(0xFF6B7280))
                     }
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(userPublications) { pub ->
                             val isExpanded = expandedPubId == pub.id
                             val animatedElevation by animateDpAsState(targetValue = if (isExpanded) 8.dp else 2.dp, label = "cardElevation")
+                            val catDisplayName = remember(pub.categoriaId, categories) {
+                                CategoryUtils.getDisplayName(pub.categoriaId, categories)
+                            }
 
                             Card(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable { expandedPubId = if (isExpanded) null else pub.id },
                                 shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
                                 elevation = CardDefaults.cardElevation(defaultElevation = animatedElevation)
                             ) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -184,17 +206,17 @@ fun MaterialsListScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(pub.titulo, style = MaterialTheme.typography.titleLarge)
+                                        Text(pub.titulo, style = MaterialTheme.typography.titleLarge, color = Color(0xFF111827), fontWeight = FontWeight.Bold)
                                         AssistChip(
                                             onClick = {},
-                                            label = { Text(pub.categoriaId) },
+                                            label = { Text(catDisplayName) },
                                             colors = AssistChipDefaults.assistChipColors(
                                                 containerColor = MaterialTheme.colorScheme.primaryContainer
                                             )
                                         )
                                     }
 
-                                    Text("${pub.pesoKg} kg · Estado: ${pub.estadoId}", style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray)
+                                    Text("${pub.pesoKg} kg · Estado: ${pub.estadoId}", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF4B5563))
 
                                     AnimatedVisibility(visible = isExpanded) {
                                         Column(
@@ -202,7 +224,7 @@ fun MaterialsListScreen(
                                             verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             if (pub.descripcion.isNotBlank()) {
-                                                Text("Descripción: ${pub.descripcion}", style = MaterialTheme.typography.bodySmall)
+                                                Text("Descripción: ${pub.descripcion}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF374151))
                                             }
                                             if (!pub.imagenUrl.isNullOrBlank()) {
                                                 AsyncImage(
@@ -220,7 +242,7 @@ fun MaterialsListScreen(
                                                         type = "text/plain"
                                                         putExtra(Intent.EXTRA_TEXT, "Ubicación de mi publicación: https://maps.google.com/?q=${pub.lat},${pub.lon}")
                                                     }
-                                                    context.startActivity(Intent.createChooser(intent, "Compartir ubicación"))
+                                                    context.startActivity(Intent.createChooser(intent, "Compartir ubicación GPS"))
                                                 }) { Text("Compartir ubicación GPS") }
                                             }
                                         }
@@ -239,15 +261,17 @@ fun MaterialsListScreen(
 @Composable
 fun OfferToCenterScreen(
     onBack: () -> Unit = {},
-    viewModel: InteractionViewModel = hiltViewModel()
+    viewModel: InteractionViewModel = hiltViewModel(),
+    aiViewModel: AiViewModel = hiltViewModel()
 ) {
     var step by remember { mutableStateOf(1) }
     var selectedCenter by remember { mutableStateOf<Usuario?>(null) }
     var centers by remember { mutableStateOf<List<Usuario>>(emptyList()) }
+    var aiAdvice by remember { mutableStateOf<String?>(null) }
     
     var weight by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf(MaterialCategory.VIDRIO) }
+    var selectedCategory by remember { mutableStateOf("VIDRIO") }
     var imageUri by remember { mutableStateOf<Uri?>(null) }
     var categoryExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -268,17 +292,38 @@ fun OfferToCenterScreen(
     }
 
     if (step == 1) {
-        Column(Modifier.fillMaxSize().padding(24.dp)) {
-            Text("Selecciona un Centro", style = MaterialTheme.typography.headlineMedium)
-            LazyColumn {
+        Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Selecciona un Centro", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF111827))
+                SuggestionChip(
+                    onClick = {
+                        aiViewModel.suggestProfileFieldWithAi("centros", "RECOLECTOR", "") { sug ->
+                            aiAdvice = "💡 Guía IA: Selecciona un Centro de Acopio autorizado. Ingresa la categoría, peso y precio sugerido. El centro validará el peso y confirmará la entrega."
+                        }
+                    },
+                    label = { Text("✨ Ayuda IA") }
+                )
+            }
+
+            aiAdvice?.let {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                ) {
+                    Text(it, modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                }
+            }
+
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(centers) { center ->
                     Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedCenter = center; step = 2 },
+                        modifier = Modifier.fillMaxWidth().clickable { selectedCenter = center; step = 2 },
                         shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
                         elevation = CardDefaults.cardElevation(2.dp)
                     ) {
                         Column(Modifier.padding(16.dp)) {
-                            Text(center.nombreEmpresa ?: center.nombre, style = MaterialTheme.typography.titleMedium)
+                            Text(center.nombreEmpresa ?: center.nombre, style = MaterialTheme.typography.titleMedium, color = Color(0xFF111827), fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -287,17 +332,17 @@ fun OfferToCenterScreen(
         }
     } else {
         Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Ofertar a ${selectedCenter?.nombreEmpresa}", style = MaterialTheme.typography.headlineMedium, color = Color.Black)
+            Text("Ofertar a ${selectedCenter?.nombreEmpresa}", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF111827))
             ExposedDropdownMenuBox(expanded = categoryExpanded, onExpandedChange = { categoryExpanded = !categoryExpanded }) {
-                OutlinedTextField(value = selectedCategory.name, onValueChange = {}, readOnly = true, label = { Text("Categoría") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.Black, unfocusedTextColor = Color.Black))
+                OutlinedTextField(value = CategoryUtils.getDisplayName(selectedCategory), onValueChange = {}, readOnly = true, label = { Text("Categoría") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth(), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color(0xFF111827), unfocusedTextColor = Color(0xFF111827)))
                 ExposedDropdownMenu(expanded = categoryExpanded, onDismissRequest = { categoryExpanded = false }) {
-                    MaterialCategory.values().forEach { category ->
-                        DropdownMenuItem(text = { Text(category.name) }, onClick = { selectedCategory = category; categoryExpanded = false })
+                    CategoryUtils.defaultCategories.forEach { category ->
+                        DropdownMenuItem(text = { Text(category.nombreMostrar) }, onClick = { selectedCategory = category.codigo; categoryExpanded = false })
                     }
                 }
             }
-            OutlinedTextField(value = weight, onValueChange = { weight = it }, label = { Text("Peso total (kg)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-            OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Precio sugerido") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            OutlinedTextField(value = weight, onValueChange = { weight = it }, label = { Text("Peso total (kg)") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color(0xFF111827), unfocusedTextColor = Color(0xFF111827)))
+            OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Precio sugerido") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), colors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color(0xFF111827), unfocusedTextColor = Color(0xFF111827)))
             if (imageUri != null) {
                 AsyncImage(model = imageUri, contentDescription = null, modifier = Modifier.size(200.dp))
                 AnimatedButton(onClick = { imageUri = null }, outlined = true) { Text("Cambiar foto") }
@@ -305,7 +350,7 @@ fun OfferToCenterScreen(
                 AnimatedButton(onClick = { val uri = CameraUtils.createImageUri(context); imageUri = uri; cameraLauncher.launch(uri) }, modifier = Modifier.fillMaxWidth()) { Text("Foto de la carga") }
             }
             if (state is InteractionUiState.Loading) LottieLoading() else {
-                AnimatedButton(onClick = { viewModel.makeOfferToCenter(selectedCenter!!.id, selectedCategory.name, weight, price, imageUri, onBack) }, modifier = Modifier.fillMaxWidth()) { Text("Enviar oferta") }
+                AnimatedButton(onClick = { viewModel.makeOfferToCenter(selectedCenter!!.id, selectedCategory, weight, price, imageUri, onBack) }, modifier = Modifier.fillMaxWidth()) { Text("Enviar oferta") }
             }
             if (state is InteractionUiState.Error) Text(state.message, color = Color.Red)
             TextButton(onClick = { step = 1 }) { Text("Volver a centros") }
