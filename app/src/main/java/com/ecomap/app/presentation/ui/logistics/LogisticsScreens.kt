@@ -1,6 +1,7 @@
 package com.ecomap.app.presentation.ui.logistics
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -21,18 +22,29 @@ import org.osmdroid.views.overlay.Polyline
 @Composable
 fun RequestPickupScreen(onBack: () -> Unit = {}) {
     var address by remember { mutableStateOf("") }
-    val textFieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.Black, unfocusedTextColor = Color.Black)
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = Color(0xFF111827),
+        unfocusedTextColor = Color(0xFF111827),
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = Color(0xFF9CA3AF)
+    )
 
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Solicitar recolección", style = MaterialTheme.typography.headlineMedium, color = Color.Black)
+        Text("Solicitar recolección", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF111827))
         OutlinedTextField(
             value = address, 
             onValueChange = { address = it }, 
-            label = { Text("Dirección de recolección") },
+            label = { Text("Dirección de recolección", color = Color(0xFF374151)) },
             modifier = Modifier.fillMaxWidth(),
             colors = textFieldColors
         )
-        Text("Estado: SOLICITADA", color = Color.Blue)
+        Surface(
+            color = Color(0xFFCCE5FF),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Estado: SOLICITADA", color = Color(0xFF004085), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(12.dp))
+        }
         Button(onClick = { /* ViewModel */ }, modifier = Modifier.fillMaxWidth()) { Text("Solicitar recolector cercano") }
         OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Volver") }
     }
@@ -43,7 +55,6 @@ fun ActiveRouteScreen(onBack: () -> Unit = {}) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // MEJORA FUTURA: Integrar motor de ruteo turn-by-turn (ej. OSRM u osmdroid BonusPack) para navegación paso a paso con guía de voz.
     val sampleRoutePoints = remember {
         listOf(
             GeoPoint(-17.3895, -66.1568),
@@ -106,9 +117,15 @@ fun ActiveRouteScreen(onBack: () -> Unit = {}) {
     }
 
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Ruta activa", style = MaterialTheme.typography.headlineMedium, color = Color.Black)
-        Text("Estado: EN_RUTA", color = Color.Green)
-        Text("Sigue el trazado en el mapa para llegar al punto de recolección.", color = Color.DarkGray)
+        Text("Ruta activa", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF111827))
+        Surface(
+            color = Color(0xFFD4EDDA),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Estado: EN_RUTA", color = Color(0xFF155724), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(12.dp))
+        }
+        Text("Sigue el trazado en el mapa para llegar al punto de recolección.", color = Color(0xFF4B5563))
 
         Box(
             modifier = Modifier
@@ -128,15 +145,20 @@ fun ActiveRouteScreen(onBack: () -> Unit = {}) {
 
 @Composable
 fun RegisterDeliveryScreen(onBack: () -> Unit = {}) {
-    val textFieldColors = OutlinedTextFieldDefaults.colors(focusedTextColor = Color.Black, unfocusedTextColor = Color.Black)
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedTextColor = Color(0xFF111827),
+        unfocusedTextColor = Color(0xFF111827),
+        focusedBorderColor = MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = Color(0xFF9CA3AF)
+    )
 
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Registrar entrega", style = MaterialTheme.typography.headlineMedium, color = Color.Black)
-        Text("Confirma el peso y adjunta evidencia fotográfica.", color = Color.DarkGray)
+        Text("Registrar entrega", style = MaterialTheme.typography.headlineMedium, color = Color(0xFF111827))
+        Text("Confirma el peso y adjunta evidencia fotográfica.", color = Color(0xFF4B5563))
         OutlinedTextField(
             value = "", 
             onValueChange = {}, 
-            label = { Text("Peso recibido en kg") },
+            label = { Text("Peso recibido en kg", color = Color(0xFF374151)) },
             modifier = Modifier.fillMaxWidth(),
             colors = textFieldColors
         )

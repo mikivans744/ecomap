@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.ecomap.app.domain.model.RoleCode
@@ -34,6 +35,12 @@ fun ProfileScreen(
 ) {
     val user = viewModel.currentUserData
     val context = LocalContext.current
+
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var currentPassInput by remember { mutableStateOf("") }
+    var newPassInput by remember { mutableStateOf("") }
+    var passError by remember { mutableStateOf<String?>(null) }
+    var passSuccessMsg by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.refreshUser()
@@ -82,7 +89,7 @@ fun ProfileScreen(
             Text("Completar mi perfil")
         }
 
-        AnimatedButton(onClick = { viewModel.resetPassword(user?.email ?: "") }, modifier = Modifier.fillMaxWidth(), outlined = true) {
+        AnimatedButton(onClick = { showPasswordDialog = true }, modifier = Modifier.fillMaxWidth(), outlined = true) {
             Text("Cambiar contraseña")
         }
 
@@ -100,6 +107,89 @@ fun ProfileScreen(
             Text("Volver")
         }
     }
+
+    if (showPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasswordDialog = false; passError = null; passSuccessMsg = null },
+            title = { Text("Cambiar contraseña") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Ingresa tu contraseña actual y la nueva contraseña:", style = MaterialTheme.typography.bodyMedium)
+                    
+                    OutlinedTextField(
+                        value = currentPassInput,
+                        onValueChange = { currentPassInput = it; passError = null; passSuccessMsg = null },
+                        label = { Text("Contraseña actual") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = newPassInput,
+                        onValueChange = { newPassInput = it; passError = null; passSuccessMsg = null },
+                        label = { Text("Nueva contraseña") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    passError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    passSuccessMsg?.let {
+                        Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    HorizontalDivider()
+
+                    TextButton(
+                        onClick = {
+                            val userEmail = user?.email ?: ""
+                            if (userEmail.isNotBlank()) {
+                                viewModel.resetPassword(userEmail)
+                                passSuccessMsg = "Correo enviado a $userEmail. Revisa tu bandeja de entrada."
+                            } else {
+                                passError = "No se encontró un correo válido en la sesión."
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("📧 Enviarme correo de restablecimiento")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.changePassword(
+                            currentPass = currentPassInput,
+                            newPass = newPassInput,
+                            onSuccess = {
+                                Toast.makeText(context, "Contraseña actualizada con éxito", Toast.LENGTH_LONG).show()
+                                showPasswordDialog = false
+                                currentPassInput = ""
+                                newPassInput = ""
+                                passError = null
+                                passSuccessMsg = null
+                            },
+                            onError = { err ->
+                                passError = err
+                            }
+                        )
+                    }
+                ) {
+                    Text("Cambiar ahora")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasswordDialog = false; passError = null; passSuccessMsg = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -114,7 +204,7 @@ fun CompleteProfileScreen(
 
     val roleStr = user?.rolId ?: RoleCode.CIUDADANO.name
     val completionPercent = ProfileCompletionCalculator.calculate(user)
-    val animatedProgress by animateFloatAsState(targetValue = completionPercent / 100f)
+    val animatedProgress by animateFloatAsState(targetValue = completionPercent / 100f, label = "profileProgress")
 
     var phoneInput by remember(user?.telefono) { mutableStateOf(user?.telefono ?: "") }
     var capacityInput by remember(user?.capacidadKg) { mutableStateOf(user?.capacidadKg?.toString() ?: "") }

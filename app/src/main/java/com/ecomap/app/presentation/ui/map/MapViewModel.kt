@@ -8,6 +8,7 @@ import com.ecomap.app.data.local.toEntity
 import com.ecomap.app.data.local.toPublicacion
 import com.ecomap.app.data.local.toUsuario
 import com.ecomap.app.domain.model.*
+import com.ecomap.app.domain.repository.NotificacionRepository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,7 +22,8 @@ import javax.inject.Inject
 class MapViewModel @Inject constructor(
     private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
-    private val db: EcoMapDatabase
+    private val db: EcoMapDatabase,
+    private val notificacionRepo: NotificacionRepository
 ) : ViewModel() {
 
     private val _users = MutableStateFlow<List<Usuario>>(emptyList())
@@ -30,9 +32,19 @@ class MapViewModel @Inject constructor(
     private val _publications = MutableStateFlow<List<Publicacion>>(emptyList())
     val publications: StateFlow<List<Publicacion>> = _publications
 
+    val notifications: StateFlow<List<Notificacion>> = auth.currentUser?.uid?.let { uid ->
+        notificacionRepo.observeNotifications(uid).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    } ?: MutableStateFlow(emptyList())
+
     init {
         observeUsers()
         observePublications()
+    }
+
+    fun markNotificationAsRead(id: String) {
+        viewModelScope.launch {
+            notificacionRepo.markAsRead(id)
+        }
     }
 
     private fun observeUsers() {

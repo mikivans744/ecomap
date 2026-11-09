@@ -14,4 +14,8 @@ interface OfertaCentroRepository {
     suspend fun create(offer: OfertaCentro): Result<OfertaCentro>
     suspend fun updateStatus(id: String, status: CenterOfferStatus, weight: Double? = null, signature: String? = null): Result<Unit>
 }
-interface NotificacionRepository { suspend fun notify(role:RoleCode,title:String,body:String):Result<Unit> }
+interface NotificacionRepository {
+    suspend fun notify(paraUid: String, title: String, body: String, tipo: String = "GENERAL"): Result<Unit>
+    fun observeNotifications(uid: String): Flow<List<Notificacion>>
+    suspend fun markAsRead(notificationId: String): Result<Unit>
+}

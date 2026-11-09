@@ -343,6 +343,63 @@ class OfertaCentroRepositoryImpl @Inject constructor(
     } catch(e:Exception) { Result.failure(e) }
 }
 
-class NotificacionRepositoryImpl @Inject constructor() : NotificacionRepository {
-    override suspend fun notify(role: RoleCode, title: String, body: String): Result<Unit> = Result.success(Unit)
+class NotificacionRepositoryImpl @Inject constructor(
+    private val firestore: FirebaseFirestore
+) : NotificacionRepository {
+
+    override suspend fun notify(paraUid: String, title: String, body: String, tipo: String): Result<Unit> = try {
+        if (paraUid.isBlank()) {
+            Result.success(Unit)
+        } else {
+            val data = mapOf(
+                "paraUid" to paraUid,
+                "titulo" to title,
+                "cuerpo" to body,
+                "tipo" to tipo,
+                "createdAt" to System.currentTimeMillis(),
+                "leido" to false
+            )
+            firestore.collection("notifications").add(data).await()
+            Result.success(Unit)
+        }
+    } catch (e: Exception) {
+        Log.w("ECOMAP_NOTIF", "No se pudo notificar (reglas pendientes): ${e.message}")
+        Result.failure(e)
+    }
+
+    override fun observeNotifications(uid: String): Flow<List<Notificacion>> = callbackFlow {
+        if (uid.isBlank()) {
+            trySend(emptyList())
+            awaitClose { }
+            return@callbackFlow
+        }
+        val listener = firestore.collection("notifications")
+            .whereEqualTo("paraUid", uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) {
+                    trySend(emptyList())
+                    return@addSnapshotListener
+                }
+                val list = snapshot.documents.mapNotNull { doc ->
+                    Notificacion(
+                        id = doc.id,
+                        paraUid = doc.getString("paraUid") ?: "",
+                        titulo = doc.getString("titulo") ?: "",
+                        cuerpo = doc.getString("cuerpo") ?: "",
+                        tipo = doc.getString("tipo") ?: "GENERAL",
+                        createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                        leido = doc.getBoolean("leido") ?: false
+                    )
+                }.sortedByDescending { it.createdAt }
+                trySend(list)
+            }
+        awaitClose { listener.remove() }
+    }
+
+    override suspend fun markAsRead(notificationId: String): Result<Unit> = try {
+        firestore.collection("notifications").document(notificationId).update("leido", true).await()
+        Result.success(Unit)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
 }
